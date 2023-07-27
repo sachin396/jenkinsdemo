@@ -1,0 +1,63 @@
+pipeline {
+    agent any
+    
+    stages{
+        stage('Git Code checkout'){
+            steps{
+                git branch: 'main', url: 'https://github.com/Mahesh8887/CICD-project-website.git' 
+            }
+        }
+        stage('Sending docker file to Ansible server over ssh'){
+            steps{
+                sshagent(['ansible_demo']) {
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@172.31.19.235'
+                    sh "scp /var/lib/jenkins/workspace/webapp/* ubuntu@172.31.19.235:/home/ubuntu/"
+                }
+            }
+        } 
+        stage('Docker Build image'){
+            steps{
+                sshagent(['ansible_demo']) {
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@172.31.19.235 cd /home/ubuntu/'
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@172.31.19.235 docker build -t webapp:v1.$BUILD_ID .'
+                }
+            }
+        } 
+        stage('Docker image tagging'){
+            steps{
+                sshagent(['ansible_demo']) {
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@172.31.19.235 cd /home/ubuntu/'
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@172.31.19.235 docker image tag webapp:v1.$BUILD_ID mahesh8887/webapp '
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@172.31.19.235 docker image tag webapp:v1.$BUILD_ID mahesh8887/webapp:latest '
+                }
+            }
+        }
+        stage('Push docker image to docker hub'){
+            steps{
+                sshagent(['ansible_demo']) {
+                    withCredentials([string(credentialsId: 'dockerhub', variable: 'dockerhub')]) {
+                        sh "docker login -u mahesh8887 -p ${env.dockerhub}"
+                        sh 'ssh -o StrictHostKeyChecking=no ubuntu@172.31.19.235 cd /home/ubuntu/'
+                        sh 'ssh -o StrictHostKeyChecking=no ubuntu@172.31.19.235 docker image push mahesh8887/webapp:latest'
+                    }
+                }
+            }
+        }
+        stage('Copy file from Ansible to webappserver server'){
+            steps{
+                sshagent(['deploy']) {
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@172.31.25.64'
+                    sh "scp /var/lib/jenkins/workspace/webapp/* ubuntu@172.31.25.64:/home/ubuntu/"
+                }
+            }
+        }
+        stage('Webapp Deployment using Ansible'){
+            steps{
+                sshagent(['ansible_demo']) { 
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@172.31.19.235 cd /home/ubuntu'
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@172.31.19.235 ansible-playbook ansible.yml'
+                }
+            }
+        }                
+    }
+}
